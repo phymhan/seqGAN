@@ -74,6 +74,32 @@ class Generator(nn.Module):
 
         return samples
 
+    def rsample(self, num_samples, start_letter=0):
+        """
+        Samples the network and returns num_samples samples of length max_seq_len.
+
+        Outputs: samples, hidden
+            - samples: num_samples x max_seq_length (a sampled sequence in each row)
+        """
+
+        samples = torch.zeros(num_samples, self.max_seq_len).type(torch.LongTensor)
+
+        h = self.init_hidden(num_samples)
+        inp = autograd.Variable(torch.LongTensor([start_letter]*num_samples))
+
+        if self.gpu:
+            samples = samples.cuda()
+            inp = inp.cuda()
+
+        for i in range(self.max_seq_len):
+            out, h = self.forward(inp, h)               # out: num_samples x vocab_size
+            out = torch.multinomial(torch.exp(out), 1)  # num_samples x 1 (sampling from each row)
+            samples[:, i] = out.view(-1).data
+
+            inp = out.view(-1)
+
+        return samples
+
     def batchNLLLoss(self, inp, target):
         """
         Returns the NLL Loss for predicting target sequence.
@@ -126,3 +152,18 @@ class Generator(nn.Module):
 
         return loss/batch_size
 
+    def batchRepLoss(self, inp, target, reward):
+        batch_size, seq_len = inp.size()
+        # inp = inp.permute(1, 0)          # seq_len x batch_size
+        # target = target.permute(1, 0)    # seq_len x batch_size
+        # h = self.init_hidden(batch_size)
+
+        # loss = 0
+        # for i in range(seq_len):
+        #     out, h = self.forward(inp[i], h)
+        #     # TODO: should h be detached from graph (.detach())?
+        #     for j in range(batch_size):
+        #         loss += -out[j][target.data[i][j]]*reward[j]     # log(P(y_t|Y_1:Y_{t-1})) * Q
+        loss = -reward.sum()
+
+        return loss/batch_size

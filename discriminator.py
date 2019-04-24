@@ -3,6 +3,7 @@ import torch.autograd as autograd
 import torch.nn as nn
 import pdb
 
+
 class Discriminator(nn.Module):
 
     def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, gpu=False, dropout=0.2):
@@ -11,8 +12,8 @@ class Discriminator(nn.Module):
         self.embedding_dim = embedding_dim
         self.max_seq_len = max_seq_len
         self.gpu = gpu
-
         self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.embedding_matrix = self.embeddings.weight.data  # ???
         self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=2, bidirectional=True, dropout=dropout)
         self.gru2hidden = nn.Linear(2*2*hidden_dim, hidden_dim)
         self.dropout_linear = nn.Dropout(p=dropout)

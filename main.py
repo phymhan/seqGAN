@@ -12,8 +12,10 @@ import generator
 import discriminator
 import helpers
 
+import argparse
 
-CUDA = False
+
+CUDA = True
 VOCAB_SIZE = 5000
 MAX_SEQ_LEN = 20
 START_LETTER = 0
@@ -85,7 +87,30 @@ def train_generator_PG(gen, gen_opt, oracle, dis, num_batches):
 
     # sample from generator and compute oracle NLL
     oracle_loss = helpers.batchwise_oracle_nll(gen, oracle, POS_NEG_SAMPLES, BATCH_SIZE, MAX_SEQ_LEN,
-                                                   start_letter=START_LETTER, gpu=CUDA)
+                                               start_letter=START_LETTER, gpu=CUDA)
+
+    print(' oracle_sample_NLL = %.4f' % oracle_loss)
+
+
+def train_generator_rep(gen, gen_opt, oracle, dis, num_batches):
+    """
+    The generator is trained using reparameterization, using the reward from the discriminator.
+    Training is done for num_batches batches.
+    """
+
+    for batch in range(num_batches):
+        s = gen.rsample(BATCH_SIZE*2)        # 64 works best
+        inp, target = helpers.prepare_generator_batch_rep(s, start_letter=START_LETTER, gpu=CUDA)
+        rewards = dis.batchClassify(target)
+
+        gen_opt.zero_grad()
+        pg_loss = gen.batchRepLoss(inp, target, rewards)
+        pg_loss.backward()
+        gen_opt.step()
+
+    # sample from generator and compute oracle NLL
+    oracle_loss = helpers.batchwise_oracle_nll(gen, oracle, POS_NEG_SAMPLES, BATCH_SIZE, MAX_SEQ_LEN,
+                                               start_letter=START_LETTER, gpu=CUDA)
 
     print(' oracle_sample_NLL = %.4f' % oracle_loss)
 
@@ -134,8 +159,13 @@ def train_discriminator(discriminator, dis_opt, real_data_samples, generator, or
             print(' average_loss = %.4f, train_acc = %.4f, val_acc = %.4f' % (
                 total_loss, total_acc, torch.sum((val_pred>0.5)==(val_target>0.5)).data.item()/200.))
 
+
 # MAIN
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--rep', action='store_true')
+    args = parser.parse_args()
+
     oracle = generator.Generator(GEN_EMBEDDING_DIM, GEN_HIDDEN_DIM, VOCAB_SIZE, MAX_SEQ_LEN, gpu=CUDA)
     oracle.load_state_dict(torch.load(oracle_state_dict_path))
     oracle_samples = torch.load(oracle_samples_path).type(torch.LongTensor)
@@ -150,6 +180,11 @@ if __name__ == '__main__':
         gen = gen.cuda()
         dis = dis.cuda()
         oracle_samples = oracle_samples.cuda()
+
+    if args.rep:
+        train_generator = train_generator_rep
+    else:
+        train_generator = train_generator_PG
 
     # GENERATOR MLE TRAINING
     print('Starting Generator MLE Training...')
@@ -178,7 +213,7 @@ if __name__ == '__main__':
         # TRAIN GENERATOR
         print('\nAdversarial Training Generator : ', end='')
         sys.stdout.flush()
-        train_generator_PG(gen, gen_optimizer, oracle, dis, 1)
+        train_generator(gen, gen_optimizer, oracle, dis, 1)
 
         # TRAIN DISCRIMINATOR
         print('\nAdversarial Training Discriminator : ')
